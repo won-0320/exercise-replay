@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14171a">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>운동 리플레이</title>
+<style>
+/* Layout idea: one-screen camera tool. Video stage fills the top, thumb-reach controls sit at the bottom. Single dark theme by choice. */
+:root{
+  color-scheme: dark;
+  --bg:#14171a;
+  --surface:#1f2428;
+  --line:#343b41;
+  --text:#f2f0ea;
+  --muted:#9aa3a8;
+  --accent:#ffb020;
+  --rec:#ff4636;
+  --ok:#5fd08a;
+  --font: system-ui, -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:15px;line-height:1.4;overscroll-behavior:none;
+  -webkit-user-select:none;user-select:none}
+button,select,input{font:inherit;color:inherit}
+[hidden]{display:none !important}
+.app{height:100%;display:flex;flex-direction:column;
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+.bar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 16px;min-height:48px}
+.bar h1{font-size:16px;margin:0;font-weight:700;letter-spacing:-.01em;white-space:nowrap}
+.barR{display:flex;align-items:center;gap:10px;min-width:0}
+.status{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums;display:flex;align-items:center;gap:6px;white-space:nowrap}
+.status.rec{color:var(--rec);font-weight:700}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--rec);animation:blink 1s steps(2) infinite}
+@keyframes blink{50%{opacity:.25}}
+@media (prefers-reduced-motion:reduce){.dot{animation:none}}
+
+.stage{flex:1;min-height:120px;position:relative;background:#000;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.stage video{width:100%;height:100%;object-fit:contain;display:block}
+#live.mirror{transform:scaleX(-1)}
+.count{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  font-size:140px;font-weight:800;color:var(--accent);background:rgba(0,0,0,.35);font-variant-numeric:tabular-nums}
+.empty{padding:24px;text-align:center;color:var(--muted);max-width:340px}
+.empty strong{display:block;color:var(--text);font-size:17px;margin-bottom:6px}
+.badge{position:absolute;top:10px;left:10px;background:rgba(0,0,0,.6);border-radius:6px;padding:3px 8px;font-size:12px;color:var(--accent);font-weight:700}
+.toast{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);background:rgba(0,0,0,.82);border:1px solid var(--line);
+  padding:8px 14px;border-radius:20px;font-size:13px;max-width:92%;text-align:center}
+
+.strip{display:flex;gap:8px;overflow-x:auto;padding:8px 16px;border-top:1px solid var(--line);scrollbar-width:none}
+.strip::-webkit-scrollbar{display:none}
+.chip{flex:none;border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:7px 10px;font-size:13px;
+  font-variant-numeric:tabular-nums;display:flex;gap:6px;align-items:center;cursor:pointer;min-height:36px}
+.chip[aria-current="true"]{border-color:var(--accent);color:var(--accent)}
+.chip .tag{color:var(--ok);font-size:12px}
+.chip .tag.warn{color:var(--accent)}
+.chip.mark{border-style:dashed}
+.stripLabel{flex:none;align-self:center;font-size:12px;color:var(--muted)}
+
+.panel{padding:10px 16px 12px;display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--line);background:var(--bg)}
+.row{display:flex;gap:8px;align-items:center;justify-content:space-between}
+.opts{display:flex;gap:8px}
+.opt{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+.opt select{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:9px 8px;font-size:14px;color:var(--text);width:100%}
+.btn{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:9px 10px;min-height:44px;min-width:44px;
+  font-weight:600;font-size:14px;display:inline-flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;text-align:center;white-space:nowrap}
+.btn:active{background:var(--line)}
+.btn:disabled{opacity:.4}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#1a1300}
+.btn.danger{color:var(--rec)}
+.btn.danger.arm{background:var(--rec);border-color:var(--rec);color:#fff}
+.btn.grow{flex:1}
+.btn.small{min-height:34px;padding:5px 10px;font-size:13px}
+.btn[aria-pressed="true"]{border-color:var(--accent);color:var(--accent)}
+.side{width:96px}
+.shutter{width:72px;height:72px;border-radius:50%;border:4px solid var(--text);background:transparent;padding:0;display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none}
+.shutter i{display:block;width:52px;height:52px;border-radius:50%;background:var(--rec);transition:all .15s}
+.shutter.on i{width:26px;height:26px;border-radius:6px}
+@media (prefers-reduced-motion:reduce){.shutter i{transition:none}}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.scrub{display:flex;align-items:center;gap:10px}
+.scrub input{flex:1;accent-color:var(--accent);height:28px;min-width:0}
+.time{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.note{font-size:12px;color:var(--muted);margin:0}
+.file{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+@media (max-height:520px){ .note{display:none} .panel{gap:6px;padding:6px 16px 8px} .shutter{width:60px;height:60px} .shutter i{width:42px;height:42px} }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="bar">
+    <h1>운동 리플레이</h1>
+    <div class="barR">
+      <div class="status" id="status">준비 중</div>
+      <button class="btn small" id="install" type="button" hidden>홈 화면에 설치</button>
+    </div>
+  </header>
+
+  <main class="stage" id="stage">
+    <video id="live" playsinline muted autoplay hidden></video>
+    <video id="player" playsinline loop hidden></video>
+    <div class="empty" id="empty">
+      <strong id="emptyTitle">카메라를 준비하고 있어요</strong>
+      <span id="emptyMsg">카메라 사용을 허용해 주세요.</span>
+    </div>
+    <div class="badge" id="speedBadge" hidden></div>
+    <div class="count" id="count" hidden></div>
+    <div class="toast" id="toast" hidden></div>
+  </main>
+
+  <div class="strip" id="marks" hidden></div>
+  <div class="strip" id="clips" hidden></div>
+
+  <!-- 촬영 패널: 화면 속 카메라 -->
+  <section class="panel" id="livePanel" hidden>
+    <div class="opts">
+      <label class="opt" for="delay">시작 지연
+        <select id="delay">
+          <option value="0">바로 시작</option>
+          <option value="3">3초 뒤</option>
+          <option value="5">5초 뒤</option>
+          <option value="10">10초 뒤</option>
+        </select>
+      </label>
+      <label class="opt" for="limit">촬영 길이
+        <select id="limit">
+          <option value="0">직접 정지</option>
+          <option value="10">10초</option>
+          <option value="30">30초</option>
+          <option value="60">1분</option>
+          <option value="300">5분</option>
+        </select>
+      </label>
+      <label class="opt" for="quality">화질
+        <select id="quality">
+          <option value="720">보통</option>
+          <option value="1080">높음</option>
+        </select>
+      </label>
+    </div>
+    <div class="row">
+      <button class="btn side" id="flip" type="button">카메라 전환</button>
+      <button class="shutter" id="shutter" type="button" aria-label="촬영 시작"><i></i></button>
+      <label class="btn side" for="pick1" id="pickLabel">영상 불러오기</label>
+      <button class="btn side" id="markLive" type="button" hidden>장면 표시</button>
+    </div>
+  </section>
+
+  <!-- 촬영 패널: 화면 속 카메라를 못 쓸 때 -->
+  <section class="panel" id="fallbackPanel" hidden>
+    <label class="btn primary" for="capture">휴대폰 카메라로 촬영</label>
+    <label class="btn" for="pick1">저장된 영상 불러오기</label>
+    <button class="btn" id="retryCam" type="button">화면 속 카메라 다시 시도</button>
+  </section>
+
+  <!-- 확인 패널 -->
+  <section class="panel" id="reviewPanel" hidden>
+    <div class="scrub">
+      <input type="range" id="seek" min="0" max="1000" value="0" step="1" aria-label="재생 위치">
+      <span class="time" id="time">0:00.0 / 0:00.0</span>
+    </div>
+    <div class="row">
+      <button class="btn" id="back10" type="button">-10초</button>
+      <button class="btn" id="back" type="button" aria-label="한 프레임 뒤로">◀</button>
+      <button class="btn primary grow" id="play" type="button">일시정지</button>
+      <button class="btn" id="fwd" type="button" aria-label="한 프레임 앞으로">▶</button>
+      <button class="btn" id="fwd10" type="button">+10초</button>
+    </div>
+    <div class="row">
+      <button class="btn grow speed" data-rate="0.25" type="button" aria-pressed="false">0.25배</button>
+      <button class="btn grow speed" data-rate="0.5" type="button" aria-pressed="false">0.5배</button>
+      <button class="btn grow speed" data-rate="1" type="button" aria-pressed="true">1배</button>
+      <button class="btn grow" id="markAdd" type="button">장면 표시</button>
+    </div>
+    <div class="row">
+      <button class="btn danger" id="del" type="button">삭제</button>
+      <button class="btn grow" id="save" type="button">내 폰에 저장</button>
+      <button class="btn grow" id="again" type="button">다시 촬영</button>
+    </div>
+    <p class="note" id="reviewNote"></p>
+  </section>
+</div>
+
+<input class="file" type="file" id="capture" accept="video/*" capture="environment">
+<input class="file" type="file" id="pick1" accept="video/*">
+
+<script>
+(function(){
+  'use strict';
+  var $ = function(id){ return document.getElementById(id); };
+  var live=$('live'), player=$('player'), empty=$('empty'), emptyMsg=$('emptyMsg'), statusEl=$('status');
+  var livePanel=$('livePanel'), fallbackPanel=$('fallbackPanel'), reviewPanel=$('reviewPanel');
+  var countEl=$('count'), toastEl=$('toast'), clipsEl=$('clips'), marksEl=$('marks'), shutter=$('shutter');
+  var seek=$('seek'), timeEl=$('time'), playBtn=$('play'), badge=$('speedBadge');
+
+  var QUALITY={ '720':{w:1280,h:720,bps:2500000}, '1080':{w:1920,h:1080,bps:5000000} };
+  var SLICE=3000;             // 이 간격(ms)마다 촬영분을 폰 저장공간에 기록
+  var FRAME=1/30;
+  var MARK_LEAD=5;            // 촬영 중 표시는 누르기 5초 전부터 보여줌
+
+  var stream=null, facing='environment', recorder=null;
+  var rec=null;               // 진행 중인 촬영
+  var clips=[], current=null;
+  var mode='init';            // live | fallback | countdown | recording | saving | review
+  var countTimer=null, recTimer=null, toastTimer=null, wake=null, seeking=false, delArm=null;
+  var store={ok:false, dir:null};
+  var installEvt=null;
+
+  /* ---------- 공통 ---------- */
+  function fmt(t){
+    if(!isFinite(t)||t<0) t=0;
+    var m=Math.floor(t/60), s=t-m*60;
+    return m+':'+(s<10?'0':'')+s.toFixed(1);
+  }
+  function fmtShort(t){
+    if(!isFinite(t)||t<0) t=0;
+    t=Math.round(t); var m=Math.floor(t/60), s=t%60;
+    return m+':'+(s<10?'0':'')+s;
+  }
+  function p2(n){ return (n<10?'0':'')+n; }
+  function setStatus(text,recOn){
+    statusEl.className='status'+(recOn?' rec':'');
+    statusEl.innerHTML=(recOn?'<span class="dot"></span>':'')+text;
+  }
+  function toast(msg,ms){
+    toastEl.textContent=msg; toastEl.hidden=false;
+    clearTimeout(toastTimer); toastTimer=setTimeout(function(){ toastEl.hidden=true; },ms||2600);
+  }
+  function show(el,on){ el.hidden=!on; }
+  function pref(k,v){
+    try{ if(v===undefined) return localStorage.getItem('er.'+k); localStorage.setItem('er.'+k,v); }catch(e){}
+    return null;
+  }
+
+  function setMode(m){
+    mode=m;
+    var camOn=(m==='live'||m==='countdown'||m==='recording'||m==='saving');
+    show(livePanel, camOn);
+    show(fallbackPanel, m==='fallback');
+    show(reviewPanel, m==='review');
+    show(live, camOn);
+    show(player, m==='review');
+    show(empty, m==='fallback'||m==='init');
+    show(countEl, m==='countdown');
+    show(badge, m==='review' && player.playbackRate!==1);
+    shutter.classList.toggle('on', m==='recording'||m==='countdown');
+    shutter.disabled=(m==='saving');
+    shutter.setAttribute('aria-label', m==='recording'?'촬영 정지':(m==='countdown'?'취소':'촬영 시작'));
+    $('flip').disabled = $('delay').disabled = $('limit').disabled = $('quality').disabled = (m!=='live');
+    show($('markLive'), m==='recording');
+    show($('pickLabel'), m!=='recording');
+    if(m==='live') liveStatus();
+    if(m==='fallback') setStatus('휴대폰 카메라 사용');
+    if(m==='review') setStatus('확인 중');
+    if(m==='saving') setStatus('정리 중');
+    renderMarks();
+  }
+  function liveStatus(){
+    setStatus('촬영 대기');
+    if(!store.ok||!navigator.storage||!navigator.storage.estimate) return;
+    navigator.storage.estimate().then(function(e){
+      if(mode!=='live') return;
+      var free=(e.quota||0)-(e.usage||0), q=QUALITY[$('quality').value]||QUALITY['720'];
+      var min=Math.floor(free/((q.bps+128000)/8*60));
+      if(min>0) setStatus('촬영 대기 · 약 '+(min>=600?'10시간 이상':(min>=120?Math.floor(min/60)+'시간':min+'분'))+' 가능');
+    }).catch(function(){});
+  }
+
+  /* ---------- 폰 저장공간 (앱 안 보관함) ---------- */
+  function initStore(){
+    try{
+      if(!navigator.storage||!navigator.storage.getDirectory) return Promise.resolve();
+      if(typeof FileSystemFileHandle==='undefined'||!('createWritable' in FileSystemFileHandle.prototype)) return Promise.resolve();
+      return navigator.storage.getDirectory()
+        .then(function(root){ return root.getDirectoryHandle('clips',{create:true}); })
+        .then(function(dir){
+          store.dir=dir; store.ok=true;
+          if(navigator.storage.persist) navigator.storage.persist().catch(function(){});
+          return loadStored();
+        })
+        .catch(function(){ store.ok=false; });
+    }catch(e){ return Promise.resolve(); }
+  }
+  function writeFile(dir,name,data){
+    return dir.getFileHandle(name,{create:true}).then(function(h){
+      return h.createWritable().then(function(w){
+        return w.write(data).then(function(){ return w.close(); });
+      });
+    });
+  }
+  function readJSON(dir,name){
+    return dir.getFileHandle(name).then(function(h){ return h.getFile(); })
+      .then(function(f){ return f.text(); }).then(function(t){ return JSON.parse(t); });
+  }
+  function listDir(dir){
+    var out=[], it=dir.entries();
+    function next(){
+      return it.next().then(function(r){
+        if(r.done) return out;
+        out.push(r.value); return next();
+      });
+    }
+    return next();
+  }
+  function saveMeta(clip){
+    if(!clip.dir) return Promise.resolve();
+    var meta={id:clip.id,name:clip.name,type:clip.type,created:clip.created,dur:clip.dur,marks:clip.marks,saved:clip.saved,done:clip.done};
+    return writeFile(clip.dir,'meta.json',JSON.stringify(meta)).catch(function(){});
+  }
+  function loadStored(){
+    return listDir(store.dir).then(function(entries){
+      var jobs=entries.filter(function(e){ return e[1].kind==='directory'; }).map(function(e){
+        var dir=e[1];
+        return readJSON(dir,'meta.json').then(function(meta){
+          return listDir(dir).then(function(files){
+            var n=files.filter(function(f){ return /\.bin$/.test(f[0]); }).length;
+            if(!n){ return store.dir.removeEntry(e[0],{recursive:true}).catch(function(){}); }
+            var c={id:meta.id||e[0],name:meta.name,type:meta.type||'video/webm',created:meta.created||0,
+              dur:meta.done?meta.dur:n*SLICE/1000, marks:meta.marks||[], saved:!!meta.saved, done:!!meta.done,
+              recovered:!meta.done, dir:dir, blob:null, url:null, temp:false};
+            clips.push(c);
+          });
+        }).catch(function(){ return store.dir.removeEntry(e[0],{recursive:true}).catch(function(){}); });
+      });
+      return Promise.all(jobs);
+    }).then(function(){
+      clips.sort(function(a,b){ return a.created-b.created; });
+      renderClips();
+      if(clips.some(function(c){ return c.recovered; })) toast('중간에 끊긴 촬영을 되살렸어요.',4000);
+    });
+  }
+  function buildBlob(clip){
+    if(clip.blob) return Promise.resolve(clip.blob);
+    return listDir(clip.dir).then(function(files){
+      var names=files.map(function(f){ return f[0]; }).filter(function(n){ return /\.bin$/.test(n); }).sort();
+      return Promise.all(names.map(function(n){
+        return clip.dir.getFileHandle(n).then(function(h){ return h.getFile(); });
+      }));
+    }).then(function(parts){
+      clip.blob=new Blob(parts,{type:clip.type});
+      return clip.blob;
+    });
+  }
+
+  /* ---------- 카메라 ---------- */
+  function stopStream(){
+    if(stream){ stream.getTracks().forEach(function(t){ t.stop(); }); stream=null; }
+    live.srcObject=null;
+  }
+  function goFallback(msg){
+    stopStream();
+    $('emptyTitle').textContent='화면 속 카메라를 쓸 수 없어요';
+    emptyMsg.textContent=msg;
+    setMode('fallback');
+  }
+  function startCamera(){
+    stopStream();
+    var md=navigator.mediaDevices;
+    if(!md||!md.getUserMedia||typeof MediaRecorder==='undefined'){
+      goFallback('이 방식으로 열면 휴대폰 기본 카메라로 촬영합니다. 촬영을 마치면 바로 여기서 확인할 수 있어요.');
+      return Promise.resolve();
+    }
+    var q=QUALITY[$('quality').value]||QUALITY['720'];
+    var v={facingMode:{ideal:facing},width:{ideal:q.w},height:{ideal:q.h},frameRate:{ideal:30}};
+    return md.getUserMedia({video:v,audio:true})
+      .catch(function(){ return md.getUserMedia({video:v,audio:false}); })
+      .then(function(s){
+        stream=s; live.srcObject=s;
+        live.classList.toggle('mirror', facing==='user');
+        setMode('live');
+        var p=live.play(); if(p&&p.catch) p.catch(function(){});
+        keepAwake();
+      })
+      .catch(function(){
+        goFallback('카메라 권한이 꺼져 있어요. 주소창 왼쪽 아이콘에서 카메라를 허용한 뒤 다시 시도하거나, 아래 버튼으로 휴대폰 기본 카메라를 사용하세요.');
+      });
+  }
+  function keepAwake(){
+    try{
+      if(navigator.wakeLock&&!wake){
+        navigator.wakeLock.request('screen').then(function(w){
+          wake=w; w.addEventListener('release',function(){ wake=null; });
+        }).catch(function(){});
+      }
+    }catch(e){}
+  }
+
+  /* ---------- 촬영 ---------- */
+  function pickMime(){
+    var c=['video/mp4;codecs=avc1.640028,mp4a.40.2','video/mp4;codecs=avc1.42E01F,mp4a.40.2','video/mp4;codecs=avc1,mp4a.40.2',
+           'video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm','video/mp4'];
+    for(var i=0;i<c.length;i++){ try{ if(MediaRecorder.isTypeSupported(c[i])) return c[i]; }catch(e){} }
+    return '';
+  }
+  function extOf(type){
+    if(type.indexOf('mp4')>=0) return 'mp4';
+    if(type.indexOf('quicktime')>=0) return 'mov';
+    return 'webm';
+  }
+  function stamp(d){
+    return '운동_'+d.getFullYear()+p2(d.getMonth()+1)+p2(d.getDate())+'_'+p2(d.getHours())+p2(d.getMinutes())+p2(d.getSeconds());
+  }
+  function beginCountdown(){
+    var n=parseInt($('delay').value,10)||0;
+    if(n<=0){ beginRecording(); return; }
+    setMode('countdown'); setStatus('곧 시작');
+    countEl.textContent=n;
+    countTimer=setInterval(function(){
+      n--;
+      if(n<=0){ clearInterval(countTimer); countTimer=null; beginRecording(); }
+      else countEl.textContent=n;
+    },1000);
+  }
+  function cancelCountdown(){
+    clearInterval(countTimer); countTimer=null; setMode('live');
+  }
+  function beginRecording(){
+    if(!stream){ startCamera(); return; }
+    var q=QUALITY[$('quality').value]||QUALITY['720'];
+    var mime=pickMime(), opts={videoBitsPerSecond:q.bps,audioBitsPerSecond:128000};
+    if(mime) opts.mimeType=mime;
+    try{ recorder=new MediaRecorder(stream,opts); }
+    catch(e){ try{ recorder=new MediaRecorder(stream); }catch(e2){ goFallback('이 브라우저에서는 화면 속 촬영이 안 돼요. 아래 버튼으로 휴대폰 기본 카메라를 사용하세요.'); return; } }
+
+    var now=new Date();
+    var r={id:'c'+now.getTime(), created:now.getTime(), start:0, n:0, chain:Promise.resolve(), failed:false,
+           mem:[], marks:[], dir:null, type:(recorder.mimeType||mime||'video/webm').split(';')[0], recorder:recorder};
+    r.name=stamp(now)+'.'+extOf(r.type);
+    rec=r;
+
+    var ready=Promise.resolve();
+    if(store.ok){
+      ready=store.dir.getDirectoryHandle(r.id,{create:true}).then(function(d){
+        r.dir=d;
+        return writeFile(d,'meta.json',JSON.stringify({id:r.id,name:r.name,type:r.type,created:r.created,dur:0,marks:[],saved:false,done:false}));
+      }).catch(function(){ r.dir=null; });
+    }
+    recorder.ondataavailable=function(ev){
+      if(!ev.data||!ev.data.size||r.failed) return;
+      if(!r.dir&&!store.ok){ r.mem.push(ev.data); return; }
+      var i=++r.n, data=ev.data;
+      r.chain=r.chain.then(function(){
+        if(r.failed) return;
+        if(!r.dir){ r.mem.push(data); return; }
+        return writeFile(r.dir,('00000'+i).slice(-6)+'.bin',data);
+      }).catch(function(){
+        if(r.failed) return;
+        r.failed=true;
+        toast('저장공간이 부족해서 촬영을 멈췄어요. 여기까지 찍은 분량은 남아 있어요.',5000);
+        stopRecording();
+      });
+    };
+    recorder.onstop=function(){ finishRecording(r); };
+    recorder.onerror=function(){ toast('촬영 중 문제가 생겼어요.'); };
+
+    ready.then(function(){
+      r.chain=Promise.resolve();
+      recorder.start(SLICE);
+      r.start=Date.now();
+      setMode('recording');
+      var limit=parseInt($('limit').value,10)||0;
+      setStatus('0:00',true);
+      recTimer=setInterval(function(){
+        var t=(Date.now()-r.start)/1000;
+        setStatus(fmtShort(t)+(limit?' / '+fmtShort(limit):''),true);
+        if(limit&&t>=limit) stopRecording();
+      },250);
+    });
+  }
+  function stopRecording(){
+    clearInterval(recTimer); recTimer=null;
+    if(recorder&&recorder.state!=='inactive'){
+      if(rec&&!rec.end) rec.end=Date.now();
+      setMode('saving');
+      try{ recorder.stop(); }catch(e){}
+    }
+  }
+  function finishRecording(r){
+    clearInterval(recTimer); recTimer=null;
+    recorder=null;
+    var dur=((r.end||Date.now())-r.start)/1000;
+    r.chain.then(function(){
+      rec=null;
+      var clip={id:r.id,name:r.name,type:r.type,created:r.created,dur:dur,marks:r.marks,saved:false,done:true,
+                recovered:false,dir:r.dir,blob:null,url:null,temp:!r.dir};
+      if(!r.dir){
+        if(!r.mem.length){ toast('촬영된 내용이 없어요. 다시 시도해 주세요.'); setMode('live'); return; }
+        clip.blob=new Blob(r.mem,{type:r.type});
+      } else if(!r.n){
+        store.dir.removeEntry(r.id,{recursive:true}).catch(function(){});
+        toast('촬영된 내용이 없어요. 다시 시도해 주세요.'); setMode('live'); return;
+      }
+      clips.push(clip);
+      saveMeta(clip).then(function(){ openClip(clip); });
+    });
+  }
+  function markLive(){
+    if(!rec||mode!=='recording') return;
+    var t=(Date.now()-rec.start)/1000;
+    rec.marks.push({t:t,live:true});
+    toast('장면 표시 '+rec.marks.length+' · '+fmtShort(t),1200);
+  }
+
+  /* ---------- 클립 ---------- */
+  function clipLabel(c){
+    var d=new Date(c.created||Date.now());
+    return (d.getMonth()+1)+'/'+d.getDate()+' '+p2(d.getHours())+':'+p2(d.getMinutes());
+  }
+  function renderClips(){
+    clipsEl.innerHTML='';
+    show(clipsEl, clips.length>0);
+    clips.slice().reverse().forEach(function(c){
+      var b=document.createElement('button');
+      b.type='button'; b.className='chip';
+      b.setAttribute('aria-current', c===current && mode==='review' ? 'true':'false');
+      b.innerHTML=clipLabel(c)+(c.dur?' · '+fmtShort(c.dur):'')+
+        (c.saved?' <span class="tag">저장됨</span>':'')+(c.temp?' <span class="tag warn">임시</span>':'');
+      b.addEventListener('click',function(){ if(mode==='recording'||mode==='countdown'||mode==='saving') return; openClip(c); });
+      clipsEl.appendChild(b);
+    });
+  }
+  function renderMarks(){
+    marksEl.innerHTML='';
+    var on=(mode==='review'&&current&&current.marks.length>0);
+    show(marksEl,on);
+    if(!on) return;
+    var lab=document.createElement('span'); lab.className='stripLabel'; lab.textContent='표시한 장면'; marksEl.appendChild(lab);
+    current.marks.slice().sort(function(a,b){ return a.t-b.t; }).forEach(function(m){
+      var b=document.createElement('button');
+      b.type='button'; b.className='chip mark';
+      b.textContent=fmtShort(m.t);
+      b.addEventListener('click',function(){
+        if(delArm==='marks'){ removeMark(m); return; }
+        jump(m.live?Math.max(0,m.t-MARK_LEAD):m.t);
+      });
+      marksEl.appendChild(b);
+    });
+    var x=document.createElement('button');
+    x.type='button'; x.className='chip'; x.setAttribute('aria-pressed', String(delArm==='marks'));
+    x.textContent=(delArm==='marks')?'지울 표시를 누르세요 (취소)':'표시 지우기';
+    if(delArm==='marks') x.style.color='var(--rec)';
+    x.addEventListener('click',function(){ delArm=(delArm==='marks')?null:'marks'; renderMarks(); });
+    marksEl.appendChild(x);
+  }
+  function removeMark(m){
+    if(!current) return;
+    current.marks=current.marks.filter(function(x){ return x!==m; });
+    if(!current.marks.length) delArm=null;
+    saveMeta(current); renderMarks();
+  }
+  function addMark(){
+    if(!current) return;
+    current.marks.push({t:player.currentTime||0,live:false});
+    saveMeta(current); renderMarks();
+    toast('장면을 표시했어요 · '+fmtShort(player.currentTime||0),1200);
+  }
+  function openClip(clip){
+    stopStream(); disarm();
+    buildBlob(clip).then(function(blob){
+      if(current&&current!==clip&&current.url){ URL.revokeObjectURL(current.url); current.url=null; }
+      current=clip;
+      if(!clip.url) clip.url=URL.createObjectURL(blob);
+      player.src=clip.url;
+      setRate(1);
+      $('reviewNote').textContent=clip.temp
+        ? '이 영상은 임시로 열려 있어요. 앱을 닫으면 목록에서 사라집니다.'
+        : '영상은 삭제하기 전까지 이 앱 안에 보관돼요. 갤러리에서 보려면 내 폰에 저장을 누르세요.';
+      setMode('review');
+      renderClips();
+      var p=player.play(); if(p&&p.catch) p.catch(function(){ syncPlay(); });
+    }).catch(function(){
+      toast('영상을 열지 못했어요.'); if(mode!=='review') startCamera();
+    });
+  }
+  function closeReview(){
+    disarm();
+    player.pause(); player.removeAttribute('src'); player.load();
+    if(current&&current.url){ URL.revokeObjectURL(current.url); current.url=null; }
+    current=null; renderClips();
+    startCamera();
+  }
+  function disarm(){
+    delArm=null; var d=$('del'); d.classList.remove('arm'); d.textContent='삭제';
+  }
+  function deleteCurrent(){
+    if(!current) return;
+    if(delArm!=='clip'){
+      delArm='clip'; var d=$('del'); d.classList.add('arm'); d.textContent='한 번 더 누르면 삭제';
+      setTimeout(function(){ if(delArm==='clip') disarm(); },3000);
+      return;
+    }
+    var c=current;
+    clips=clips.filter(function(x){ return x!==c; });
+    closeReview();
+    if(c.dir&&store.ok) store.dir.removeEntry(c.id,{recursive:true}).catch(function(){});
+    toast('영상을 지웠어요.');
+  }
+  function saveCurrent(){
+    if(!current||!current.blob) return;
+    var c=current, file=null;
+    var isApple=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+    if(isApple&&navigator.canShare){
+      try{ file=new File([c.blob],c.name,{type:c.type||'video/mp4'}); }catch(e){}
+      if(file&&navigator.canShare({files:[file]})){
+        navigator.share({files:[file]}).then(function(){ c.saved=true; saveMeta(c); renderClips(); }).catch(function(){});
+        return;
+      }
+    }
+    try{
+      var a=document.createElement('a');
+      a.href=c.url; a.download=c.name; a.style.display='none';
+      document.body.appendChild(a); a.click(); a.remove();
+      c.saved=true; saveMeta(c); renderClips();
+      toast('다운로드 폴더에 저장합니다: '+c.name,4000);
+    }catch(e){ toast('저장하지 못했어요. 브라우저의 다운로드 권한을 확인해 주세요.'); }
+  }
+
+  /* ---------- 재생 ---------- */
+  function setRate(r){
+    player.playbackRate=r; player.defaultPlaybackRate=r;
+    var bs=document.querySelectorAll('.speed');
+    for(var i=0;i<bs.length;i++) bs[i].setAttribute('aria-pressed', String(parseFloat(bs[i].getAttribute('data-rate'))===r));
+    badge.textContent=r+'배속';
+    show(badge, mode==='review'&&r!==1);
+  }
+  function syncPlay(){ playBtn.textContent=player.paused?'재생':'일시정지'; }
+  function dur(){
+    if(isFinite(player.duration)&&player.duration>0) return player.duration;
+    return (current&&current.dur)||0;
+  }
+  function tick(){
+    if(mode==='review'){
+      var d=dur(), t=player.currentTime||0;
+      if(!seeking&&d>0) seek.value=Math.round(Math.min(1,t/d)*1000);
+      timeEl.textContent=fmt(t)+' / '+fmt(d);
+    }
+    requestAnimationFrame(tick);
+  }
+  function jump(t){
+    var d=dur();
+    if(t<0) t=0; if(d&&t>d) t=Math.max(0,d-0.05);
+    try{ player.currentTime=t; }catch(e){}
+  }
+  function step(dir){ player.pause(); jump((player.currentTime||0)+dir*FRAME); }
+  function togglePlay(){
+    if(player.paused){ var p=player.play(); if(p&&p.catch) p.catch(function(){}); } else player.pause();
+  }
+  player.addEventListener('play',syncPlay);
+  player.addEventListener('pause',syncPlay);
+  player.addEventListener('click',togglePlay);
+  player.addEventListener('loadedmetadata',function(){
+    if(current&&isFinite(player.duration)&&player.duration>0&&(current.temp||!current.dur)){ current.dur=player.duration; renderClips(); }
+  });
+  player.addEventListener('error',function(){
+    if(mode==='review') toast('이 영상은 여기서 재생할 수 없어요.');
+  });
+  seek.addEventListener('input',function(){ seeking=true; var d=dur(); if(d) jump(seek.value/1000*d); });
+  seek.addEventListener('change',function(){ seeking=false; });
+
+  /* ---------- 버튼 ---------- */
+  shutter.addEventListener('click',function(){
+    if(mode==='live') beginCountdown();
+    else if(mode==='countdown') cancelCountdown();
+    else if(mode==='recording') stopRecording();
+  });
+  $('flip').addEventListener('click',function(){ facing=(facing==='environment')?'user':'environment'; startCamera(); });
+  $('retryCam').addEventListener('click',function(){ startCamera(); });
+  $('markLive').addEventListener('click',markLive);
+  $('markAdd').addEventListener('click',addMark);
+  playBtn.addEventListener('click',togglePlay);
+  $('back').addEventListener('click',function(){ step(-1); });
+  $('fwd').addEventListener('click',function(){ step(1); });
+  $('back10').addEventListener('click',function(){ jump((player.currentTime||0)-10); });
+  $('fwd10').addEventListener('click',function(){ jump((player.currentTime||0)+10); });
+  var sp=document.querySelectorAll('.speed');
+  for(var i=0;i<sp.length;i++) sp[i].addEventListener('click',function(){ setRate(parseFloat(this.getAttribute('data-rate'))); });
+  $('save').addEventListener('click',saveCurrent);
+  $('del').addEventListener('click',deleteCurrent);
+  $('again').addEventListener('click',closeReview);
+
+  ['delay','limit','quality'].forEach(function(id){
+    var el=$(id), v=pref(id);
+    if(v!==null&&el.querySelector('option[value="'+v+'"]')) el.value=v;
+    else if(id==='delay') el.value='5';
+    el.addEventListener('change',function(){
+      pref(id,el.value);
+      if(id==='quality'&&mode==='live') startCamera();
+    });
+  });
+
+  function onFile(ev){
+    var f=ev.target.files&&ev.target.files[0];
+    ev.target.value='';
+    if(!f) return;
+    var now=new Date();
+    var ext=(f.name&&f.name.indexOf('.')>0)?f.name.split('.').pop():extOf(f.type||'video/mp4');
+    var clip={id:'t'+now.getTime(),name:stamp(now)+'.'+ext,type:f.type||'video/mp4',created:now.getTime(),dur:0,marks:[],
+              saved:false,done:true,recovered:false,dir:null,blob:f,url:null,temp:true};
+    clips.push(clip); openClip(clip);
+  }
+  $('capture').addEventListener('change',onFile);
+  $('pick1').addEventListener('change',onFile);
+
+  document.addEventListener('visibilitychange',function(){
+    if(document.visibilityState!=='visible') return;
+    if(mode==='live'){
+      var dead=!stream||stream.getVideoTracks().every(function(t){ return t.readyState==='ended'; });
+      if(dead) startCamera(); else keepAwake();
+    } else if(mode==='recording') keepAwake();
+  });
+
+  /* ---------- 설치 · 오프라인 ---------- */
+  window.addEventListener('beforeinstallprompt',function(e){
+    e.preventDefault(); installEvt=e; show($('install'),true);
+  });
+  $('install').addEventListener('click',function(){
+    if(!installEvt) return;
+    installEvt.prompt(); installEvt=null; show($('install'),false);
+  });
+  window.addEventListener('appinstalled',function(){ show($('install'),false); });
+  if('serviceWorker' in navigator && (location.protocol==='https:' || location.hostname==='localhost')){
+    try{
+      navigator.serviceWorker.register('sw.js').then(function(){
+        return navigator.serviceWorker.ready;
+      }).then(function(){
+        if(!pref('offlineTold')){ pref('offlineTold','1'); toast('이제 인터넷 없이도 열 수 있어요.',4000); }
+      }).catch(function(){});
+    }catch(e){}
+  }
+
+  window.__er={ clips:function(){ return clips; }, mode:function(){ return mode; }, store:store };
+
+  requestAnimationFrame(tick);
+  initStore().then(startCamera);
+})();
+</script>
+</body>
+</html>
